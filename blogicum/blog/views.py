@@ -12,27 +12,17 @@ from django import forms
 
 from .models import Category, Post, Comment
 from .forms import PostForm, CommentForm, UserRegistrationForm, UserProfileEditForm
+from .utils import get_published_posts, get_posts_with_counts, get_page_obj, get_user_posts  # Импортируем наши утилиты
 
 User = get_user_model()
 
 
 def index(request):
     # На главной странице показываем только опубликованные посты
-    # с опубликованными категориями и не отложенные (для всех пользователей)
-    post_list = Post.objects.filter(
-        is_published=True,
-        category__is_published=True,
-        pub_date__lte=timezone.now()
-    ).select_related(
-        'category', 'location', 'author'
-    ).annotate(
-        comment_count=Count('comments')
-    ).order_by('-pub_date')
+    post_list = get_posts_with_counts(get_published_posts())
     
-    # Пагинация - 10 постов на страницу
-    paginator = Paginator(post_list, 10)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    # Пагинация - используем новую функцию
+    page_obj = get_page_obj(request, post_list, per_page=10)
     
     context = {
         'page_obj': page_obj,
@@ -72,18 +62,12 @@ def category_posts(request, category_slug):
         is_published=True
     )
     
-    post_list = Post.objects.filter(
-        category=category,
-        is_published=True,
-        pub_date__lte=timezone.now()
-    ).select_related('category', 'location', 'author').annotate(
-        comment_count=Count('comments')
-    ).order_by('-pub_date')
+    # Получаем опубликованные посты категории
+    post_list = get_published_posts().filter(category=category)
+    post_list = get_posts_with_counts(post_list)
     
-    # Пагинация - 10 постов на страницу
-    paginator = Paginator(post_list, 10)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    # Пагинация - используем новую функцию
+    page_obj = get_page_obj(request, post_list, per_page=10)
     
     context = {
         'category': category,
@@ -96,25 +80,11 @@ def category_posts(request, category_slug):
 def profile(request, username):
     user = get_object_or_404(User, username=username)
     
-    # Получаем посты пользователя
-    post_list = Post.objects.filter(author=user).select_related(
-        'category', 'location'
-    ).annotate(
-        comment_count=Count('comments')
-    ).order_by('-pub_date')
+    # Получаем посты пользователя с помощью новой функции
+    post_list = get_user_posts(user, request.user)
     
-    # Для других пользователей скрываем неопубликованные посты
-    if request.user != user:
-        post_list = post_list.filter(
-            is_published=True,
-            category__is_published=True,
-            pub_date__lte=timezone.now()
-        )
-    
-    # Пагинация - 10 постов на страницу
-    paginator = Paginator(post_list, 10)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    # Пагинация - используем новую функцию
+    page_obj = get_page_obj(request, post_list, per_page=10)
     
     context = {
         'profile': user,
@@ -236,6 +206,7 @@ def delete_comment(request, post_id, comment_id):
         'post': comment.post
     })
 
+
 class UserProfileEditView(LoginRequiredMixin, UpdateView):
     model = User
     form_class = UserProfileEditForm
@@ -246,4 +217,3 @@ class UserProfileEditView(LoginRequiredMixin, UpdateView):
     
     def get_success_url(self):
         return reverse('blog:profile', kwargs={'username': self.request.user.username})
-    
